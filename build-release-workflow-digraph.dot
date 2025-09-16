@@ -1,0 +1,534 @@
+# Build and Release Workflows Documentation
+
+## Overview
+
+This document provides a comprehensive overview of the CI/CD workflows for Helm chart development and release in the Sumo Logic Kubernetes Collection project.
+
+## Workflow Architecture
+
+```dot
+digraph WorkflowArchitecture {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    // Define subgraphs for better organization
+    subgraph cluster_triggers {
+        label="Triggers";
+        style=filled;
+        color=lightblue;
+        fontsize=16;
+        fontname="Arial Bold";
+        
+        PR [label="Pull Request", fillcolor=yellow];
+        PUSH [label="Push to main", fillcolor=yellow];
+        TAG [label="Tag Creation", fillcolor=yellow];
+        SCHED [label="Scheduled", fillcolor=yellow];
+        MAN [label="Manual Dispatch", fillcolor=yellow];
+        DEV [label="Dev Branch Push", fillcolor=yellow];
+    }
+    
+    subgraph cluster_ci {
+        label="CI Workflows";
+        style=filled;
+        color=lightgreen;
+        fontsize=16;
+        fontname="Arial Bold";
+        
+        LINT [label="Lint &\nValidation", fillcolor=lightcyan];
+        UNIT [label="Unit Tests", fillcolor=lightcyan];
+        INT [label="Integration\nTests", fillcolor=lightcyan];
+        BUILD [label="Build & Test", fillcolor=lightcyan];
+        DEV_BUILD [label="Dev Builds", fillcolor=lightcyan];
+    }
+    
+    subgraph cluster_release {
+        label="Release Workflows";
+        style=filled;
+        color=orange;
+        fontsize=16;
+        fontname="Arial Bold";
+        
+        REL [label="Release\nCreation", fillcolor=lightyellow];
+        HELM [label="Helm Chart\nRelease", fillcolor=lightyellow];
+        DOC [label="Documentation\nUpdate", fillcolor=lightyellow];
+    }
+    
+    subgraph cluster_artifacts {
+        label="Artifacts";
+        style=filled;
+        color=pink;
+        fontsize=16;
+        fontname="Arial Bold";
+        
+        HELM_REPO [label="Helm\nRepository", fillcolor=lavender];
+        RELEASES [label="GitHub\nReleases", fillcolor=lavender];
+        ARTIFACT_HUB [label="Artifact Hub", fillcolor=lavender];
+        GH_PAGES [label="GitHub Pages", fillcolor=lavender];
+    }
+    
+    // Trigger connections
+    PR -> LINT [color=blue, penwidth=2];
+    PR -> UNIT [color=blue, penwidth=2];
+    PR -> INT [color=blue, penwidth=2];
+    PR -> BUILD [color=blue, penwidth=2];
+    
+    PUSH -> BUILD [color=green, penwidth=2];
+    PUSH -> REL [color=green, penwidth=2];
+    
+    DEV -> DEV_BUILD [color=purple, penwidth=2];
+    
+    TAG -> HELM [color=red, penwidth=2];
+    TAG -> DOC [color=red, penwidth=2];
+    
+    SCHED -> INT [color=gray, penwidth=2];
+    MAN -> REL [color=brown, penwidth=2];
+    
+    // Workflow to artifact connections
+    REL -> RELEASES [color=orange, penwidth=3];
+    HELM -> HELM_REPO [color=orange, penwidth=3];
+    HELM_REPO -> GH_PAGES [color=orange, penwidth=3];
+    GH_PAGES -> ARTIFACT_HUB [color=orange, penwidth=3];
+    DOC -> GH_PAGES [color=orange, penwidth=3];
+    DEV_BUILD -> GH_PAGES [color=purple, penwidth=3];
+}
+```
+
+## Workflow Details
+
+### 1. Dev Builds (`dev_builds.yml`)
+
+**Purpose**: Provides development Helm chart builds for feature branches and continuous deployment
+
+**Triggers**:
+- Push to `dev-build/*` branches
+- Push to `main` branch
+- Push to `release-v*` branches
+
+**Components**:
+- **Markdown Link Check**: Validates documentation links
+- **Helm Chart Push**: Publishes development Helm charts to GitHub Pages
+- **Integration Tests**: Runs full integration test suite
+
+**Runner**: Ubuntu 22.04
+
+```dot
+digraph DevBuildsFlow {
+    rankdir=LR;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    A [label="Dev Branch\nPush", fillcolor=yellow];
+    B [label="Markdown\nCheck", fillcolor=lightblue];
+    C [label="Push Helm\nChart", fillcolor=lightgreen];
+    D [label="Integration\nTests", fillcolor=orange];
+    E [label="Link\nValidation", fillcolor=lightcyan];
+    F [label="GitHub Pages\nHelm Repo", fillcolor=pink];
+    G [label="Test Results", fillcolor=lavender];
+    
+    A -> B [penwidth=2];
+    A -> C [penwidth=2];
+    A -> D [penwidth=2];
+    B -> E [penwidth=2];
+    C -> F [penwidth=2];
+    D -> G [penwidth=2];
+}
+```
+
+### 2. Integration Tests (`workflow-integration-tests.yaml`)
+
+**Purpose**: Runs comprehensive integration tests across multiple Kubernetes versions
+
+**Triggers**:
+- Pull requests to `main`, `release-*`, `dev` branches
+- Push to `main` branch  
+- Scheduled: Daily at 2 AM UTC
+- Manual dispatch
+- Called by dev builds workflow
+
+**Key Features**:
+- Matrix testing across multiple KIND images (K8s versions 1.25-1.32)
+- Separate test suites for `onlylatest` and `allversions`
+- Uses Ubuntu 22.04 runners
+- Helm version pinned to 3.18.5
+
+**Artifacts**: Test results and logs
+
+```dot
+digraph IntegrationTestFlow {
+    rankdir=LR;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    A [label="Setup", fillcolor=yellow];
+    B [label="Matrix\nStrategy", fillcolor=lightblue];
+    C [label="Test\nExecution", fillcolor=lightgreen];
+    D [label="Results\nCollection", fillcolor=orange];
+    
+    subgraph cluster_matrix {
+        label="Matrix Dimensions";
+        style=filled;
+        color=lightgray;
+        fontsize=14;
+        fontname="Arial Bold";
+        
+        E [label="KIND Images\n(K8s 1.25-1.32)", fillcolor=lightcyan];
+        F [label="Test Categories\n(onlylatest/allversions)", fillcolor=lightcyan];
+    }
+    
+    A -> B [penwidth=3];
+    B -> C [penwidth=3];
+    C -> D [penwidth=3];
+    B -> E [penwidth=2, style=dashed];
+    B -> F [penwidth=2, style=dashed];
+}
+```
+
+### 3. Build Workflows
+
+**Purpose**: Builds and validates Helm charts
+
+**Triggers**:
+- Pull requests
+- Push to main
+- Tag creation
+- Dev branch pushes
+
+**Components Built**:
+- Helm charts with templated configurations
+- Chart documentation and metadata
+
+**Artifact Storage**:
+- Helm charts: GitHub Releases and GitHub Pages
+
+### 4. Release Workflows
+
+**Purpose**: Manages versioned releases of the Helm chart collection
+
+**Triggers**:
+- Tag creation (semantic versioning)
+- Manual dispatch for hotfixes
+
+**Release Process**:
+```dot
+digraph ReleaseProcess {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    Dev [label="Developer", fillcolor=yellow];
+    GH [label="GitHub Actions", fillcolor=lightblue];
+    Helm [label="Helm Repo", fillcolor=lightgreen];
+    Releases [label="GitHub Releases", fillcolor=orange];
+    Pages [label="GitHub Pages", fillcolor=pink];
+    AH [label="Artifact Hub", fillcolor=lavender];
+    
+    Dev -> GH [label="Create tag\n(v1.x.x)", penwidth=2];
+    GH -> GH [label="Validate tag\nformat", penwidth=2];
+    GH -> Helm [label="Package &\nrelease chart", penwidth=2];
+    GH -> Releases [label="Create GitHub\nrelease", penwidth=2];
+    GH -> Pages [label="Update Helm\nrepository index", penwidth=2];
+    GH -> Pages [label="Update\ndocumentation", penwidth=2];
+    Pages -> AH [label="Periodic scan\nfor changes", penwidth=2, style=dashed];
+    AH -> AH [label="Update package\nmetadata", penwidth=2];
+}
+```
+
+### 5. Quality Assurance Workflows
+
+**Linting & Validation**:
+- YAML validation
+- Helm chart linting
+- Documentation checks
+- Markdown link verification
+- Chart template validation
+
+**Security Scanning**:
+- Chart configuration security analysis
+- Dependency checking
+
+## Environment Configuration
+
+### Helm Version Management
+
+The Helm version is controlled through multiple layers:
+
+1. **CI Environment** (`sumologic/kubernetes-tools:2.22.0` Docker image)
+   - Contains Helm v3.18.5
+   - Used in build scripts via `ci/_build_functions.sh`
+
+2. **Development Environment** (`shell.nix`)
+   - Nix package manager controls local Helm version
+   - Version pinned via Nixpkgs commit
+
+3. **Integration Tests**
+   - Explicit Helm installation step in GitHub Actions
+   - Downloads and installs Helm v3.18.5
+
+### KIND (Kubernetes in Docker) Images
+
+Supported Kubernetes versions defined in `tests/integration/kind_images.json`:
+
+```json
+{
+  "supported": [
+    "kindest/node:v1.32.0@sha256:...",
+    "kindest/node:v1.29.0@sha256:...",
+    "kindest/node:v1.28.0@sha256:...",
+    "kindest/node:v1.27.3@sha256:...",
+    "kindest/node:v1.26.6@sha256:...",
+    "kindest/node:v1.25.11@sha256:..."
+  ],
+  "default": "kindest/node:v1.32.0@sha256:..."
+}
+```
+
+## Artifact Storage Locations
+
+### Helm Charts
+- **Repository**: [Sumo Logic Kubernetes Collection Helm Repository](https://sumologic.github.io/sumologic-kubernetes-collection/)
+- **GitHub Releases**: Packaged as `.tgz` files in [GitHub Releases](https://github.com/SumoLogic/sumologic-kubernetes-collection/releases)
+- **Artifact Hub**: [artifacthub.io/packages/helm/sumologic/sumologic](https://artifacthub.io/packages/helm/sumologic/sumologic)
+- **Index**: Updated automatically with each release
+- **Versioning**: Follows semantic versioning (SemVer)
+- **Dev Charts**: Published to GitHub Pages for feature testing
+
+### GitHub Pages Artifact Storage
+
+GitHub Pages serves as the primary hosting platform for the Helm repository and project documentation:
+
+#### Helm Repository on GitHub Pages
+- **URL**: `https://sumologic.github.io/sumologic-kubernetes-collection/`
+- **Contents**:
+  - `index.yaml`: Helm repository index containing chart metadata
+  - Chart packages: `.tgz` files for each released version
+  - Repository metadata and configuration files
+
+#### GitHub Pages Deployment Process
+
+```dot
+digraph GitHubPagesDeployment {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    Workflow [label="Release\nWorkflow", fillcolor=yellow];
+    Helm [label="Helm CLI", fillcolor=lightblue];
+    Git [label="Git Repository", fillcolor=lightgreen];
+    Pages [label="GitHub Pages", fillcolor=orange];
+    CDN [label="GitHub CDN", fillcolor=pink];
+    
+    Workflow -> Helm [label="Package chart", penwidth=2];
+    Helm -> Workflow [label="Generate .tgz file", penwidth=2];
+    Workflow -> Helm [label="Update repository\nindex", penwidth=2];
+    Helm -> Workflow [label="Generate index.yaml", penwidth=2];
+    Workflow -> Git [label="Commit to\ngh-pages branch", penwidth=2];
+    Git -> Pages [label="Deploy to\nGitHub Pages", penwidth=2];
+    Pages -> CDN [label="Distribute\nvia CDN", penwidth=2];
+}
+```
+
+#### Files Stored on GitHub Pages
+1. **Helm Repository Index** (`index.yaml`):
+   ```yaml
+   apiVersion: v1
+   entries:
+     sumologic:
+       - name: sumologic
+         version: 4.10.0
+         urls:
+           - https://sumologic.github.io/sumologic-kubernetes-collection/sumologic-4.10.0.tgz
+         digest: sha256:...
+         created: "2024-01-15T10:30:00Z"
+   ```
+
+2. **Chart Packages**: Compressed `.tgz` files containing:
+   - Chart templates
+   - Values files
+   - Chart metadata
+   - Documentation
+
+3. **Repository Metadata**:
+   - Repository configuration
+   - Security policies
+   - Access control information
+
+#### GitHub Pages Configuration
+- **Branch**: `gh-pages` (automatically managed by workflows)
+- **Build Source**: Deploy from a branch
+- **Custom Domain**: Not configured (uses default GitHub Pages URL)
+- **HTTPS**: Enforced by default
+- **CDN**: Automatically distributed via GitHub's global CDN
+
+#### Deployment Workflow via `push_helm_chart` Function
+
+The GitHub Pages deployment is handled by the `push_helm_chart` function in `ci/_build_functions.sh`:
+
+1. **Chart Packaging**: 
+   ```bash
+   helm package deploy/helm/sumologic --dependency-update --version="${version}" --app-version="${version}" --destination "${sync_dir}"
+   ```
+
+2. **Index Update**: 
+   ```bash
+   helm repo index --url "https://sumologic.github.io/sumologic-kubernetes-collection${chart_dir:1}/" --merge "${chart_dir}/index.yaml" "${sync_dir}"
+   ```
+
+3. **Branch Management**: 
+   ```bash
+   git checkout -B gh-pages "${remote}/gh-pages"
+   ```
+
+4. **Pages Deployment**: 
+   ```bash
+   git push "${remote}" gh-pages
+   ```
+
+5. **CDN Distribution**: Content is distributed globally via GitHub's CDN
+
+#### Artifact Hub Integration
+
+The [Artifact Hub page](https://artifacthub.io/packages/helm/sumologic/sumologic) is updated automatically through the following process:
+
+```dot
+digraph ArtifactHubIntegration {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    Dev [label="Developer", fillcolor=yellow];
+    GH [label="GitHub Actions", fillcolor=lightblue];
+    Pages [label="GitHub Pages", fillcolor=lightgreen];
+    AH [label="Artifact Hub", fillcolor=orange];
+    
+    Dev -> GH [label="Create release tag\n(v1.x.x)", penwidth=2];
+    GH -> GH [label="Build & package\nHelm chart", penwidth=2];
+    GH -> Pages [label="Update Helm\nrepository index", penwidth=2];
+    AH -> Pages [label="Periodic scan\nfor changes", penwidth=2, style=dashed];
+    AH -> AH [label="Update package\nmetadata", penwidth=2];
+    AH -> AH [label="Publish updated\npackage info", penwidth=2];
+}
+```
+
+**Update Process**:
+1. **New Release Creation**: When a new tag is created, the release workflow packages the Helm chart and updates the repository index
+2. **GitHub Pages Update**: The `index.yaml` file is updated on GitHub Pages with new chart metadata
+3. **Artifact Hub Scanning**: Artifact Hub periodically scans the Helm repository at `https://sumologic.github.io/sumologic-kubernetes-collection/index.yaml`
+4. **Automatic Updates**: New versions appear on Artifact Hub within 30 minutes to a few hours after release
+
+### Documentation
+
+- **Location**: GitHub Pages (automatically updated)
+- **URL**: Same as Helm repository (`https://sumologic.github.io/sumologic-kubernetes-collection/`)
+- **Source**: Generated from Helm chart templates and README files
+- **Link Validation**: Automated checking via markdown-link-check
+- **Content Types**:
+  - API documentation
+  - Installation guides
+  - Configuration examples
+  - Release notes
+
+## Development Workflow
+
+### Local Development
+
+1. Use Nix shell environment (`nix-shell`)
+2. Run tests locally: `make test`
+3. Validate charts: `make lint`
+4. Test chart templates: `helm template`
+
+### Pull Request Process
+```dot
+digraph PullRequestFlow {
+    rankdir=LR;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    A [label="Create PR", fillcolor=yellow];
+    B [label="Lint Checks", fillcolor=lightblue];
+    C [label="Chart\nValidation", fillcolor=lightgreen];
+    D [label="Integration\nTests", fillcolor=orange];
+    E [label="Review", fillcolor=pink];
+    F [label="Merge to main", fillcolor=lavender];
+    G [label="Release Build", fillcolor=lightcyan];
+    
+    A -> B [penwidth=2];
+    B -> C [penwidth=2];
+    C -> D [penwidth=2];
+    D -> E [penwidth=2];
+    E -> F [penwidth=2];
+    F -> G [penwidth=2];
+}
+```
+
+### Dev Branch Workflow
+```dot
+digraph DevBranchFlow {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Arial", fontsize=14];
+    edge [fontname="Arial", fontsize=12];
+    
+    A [label="Create dev-build/*\nbranch", fillcolor=yellow];
+    B [label="Push changes", fillcolor=lightblue];
+    C [label="Dev Builds\nWorkflow", fillcolor=lightgreen];
+    D [label="Markdown\nCheck", fillcolor=orange];
+    E [label="Push Dev\nChart", fillcolor=pink];
+    F [label="Integration\nTests", fillcolor=lavender];
+    G [label="Feedback\nLoop", fillcolor=lightcyan];
+    
+    A -> B [penwidth=2];
+    B -> C [penwidth=2];
+    C -> D [penwidth=2];
+    C -> E [penwidth=2];
+    C -> F [penwidth=2];
+    F -> G [penwidth=2];
+    G -> A [penwidth=2, style=dashed];
+}
+```
+
+### Release Process
+
+1. Create release tag: `git tag v1.x.x`
+2. Push tag: `git push origin v1.x.x`
+3. Automated workflows handle:
+   - Helm chart packaging
+   - GitHub release creation
+   - GitHub Pages deployment
+   - Artifact Hub synchronization
+
+## Branch Strategy
+
+### Branch Types
+
+- **`main`**: Stable development branch
+- **`release-v*`**: Release branches for versioned releases
+- **`dev-build/*`**: Development feature branches with automatic builds
+- **`dev`**: General development branch
+- **`gh-pages`**: GitHub Pages deployment branch (automatically managed)
+
+### Workflow Triggers by Branch
+| Branch Pattern | Workflows Triggered |
+|----------------|-------------------|
+| `main` | All workflows (builds, tests, releases) |
+| `release-v*` | Dev builds, integration tests |
+| `dev-build/*` | Dev builds, integration tests |
+| `dev` | Integration tests only |
+| `gh-pages` | GitHub Pages deployment (automatic) |
+| Pull Requests | Lint, chart validation, integration tests |
+
+## Common Issues
+
+- **Flaky Tests**: Integration tests may fail due to timing issues
+- **Resource Limits**: KIND clusters have memory/CPU constraints
+- **Version Conflicts**: Ensure Helm and Kubernetes versions are compatible
+- **Chart Template Errors**: Invalid YAML or missing values can cause deployment failures
+
+## Security Considerations
+
+- Helm charts are validated for security best practices
+- Secrets are managed through GitHub Secrets
+- RBAC configurations are validated in integration tests
+- Chart signing and verification (when available)
+- Dev builds use same security standards as production
+- GitHub Pages content is served over HTTPS
+- Repository access controls apply to
