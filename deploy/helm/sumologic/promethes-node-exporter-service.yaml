@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sumo-prometheus-node-exporter
+  namespace: default
+  annotations:
+    meta.helm.sh/release-name: sumo
+    meta.helm.sh/release-namespace: default
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9102"
+    prometheus.io/scrape: "true"
+  creationTimestamp: "2025-10-23T03:25:15Z"
+  labels:
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/instance: sumo
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: prometheus-node-exporter
+    app.kubernetes.io/part-of: prometheus-node-exporter
+    app.kubernetes.io/version: 1.3.1
+    helm.sh/chart: prometheus-node-exporter-4.3.0
+    jobLabel: node-exporter
+    release: sumo
+spec:
+  type: ClusterIP
+  ports:
+  - name: http-metrics
+    port: 9100
+    protocol: TCP
+    targetPort: 9100
+  - name: statsd-udp
+    port: 8125
+    targetPort: 8125
+    protocol: UDP
+  - name: statsd-metrics
+    port: 9102
+    targetPort: 9102
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: prometheus-node-exporter
+    app.kubernetes.io/instance: sumo

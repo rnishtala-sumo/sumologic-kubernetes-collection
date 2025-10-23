@@ -1,0 +1,128 @@
+# OpenTelemetry Collector Configuration for DogStatsD with Node Exporter Integration
+# This file shows how to configure the collector to scrape statsd metrics 
+# from the prometheus-node-exporter sidecar
+
+receivers:
+  # Prometheus receiver to scrape statsd metrics from node-exporter sidecar
+  prometheus:
+    config:
+      scrape_configs:
+        # Scrape statsd metrics from node-exporter sidecar
+        - job_name: 'statsd-exporter'
+          static_configs:
+            - targets: ['sumologic-prometheus-node-exporter.sumologic.svc.cluster.local:9102']
+          scrape_interval: 30s
+          metrics_path: /metrics
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: sumologic-prometheus-node-exporter.sumologic.svc.cluster.local:9102
+
+        # Also scrape regular node-exporter metrics
+        - job_name: 'node-exporter'
+          static_configs:
+            - targets: ['sumologic-prometheus-node-exporter.sumologic.svc.cluster.local:9100']
+          scrape_interval: 30s
+          metrics_path: /metrics
+
+  # Alternative: Direct DogStatsD receiver (if not using node-exporter integration)
+  # statsd:
+  #   endpoint: "0.0.0.0:8125"
+  #   aggregation_interval: 60s
+  #   enable_metric_type: true
+
+processors:
+  # Batch processor to improve performance
+  batch:
+    send_batch_size: 1024
+    timeout: 10s
+    send_batch_max_size: 2048
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Resource processor to add additional metadata
+  resource:
+    attributes:
+      - key: collector.name
+        value: "sumologic-otelcol"
+        action: insert
+      - key: deployment.environment
+        value: "production"
+        action: insert
+
+  # Attributes processor for metric enrichment
+  attributes/statsd:
+    actions:
+      # Add source information for statsd metrics
+      - key: _sourceCategory
+        value: "kubernetes/metrics/statsd"
+        action: insert
+      - key: _sourceName
+        value: "statsd-node-exporter"
+        action: insert
+      # Add metric source
+      - key: metric.source
+        value: "statsd-exporter"
+        action: insert
+      # Add node information
+      - key: node.source
+        value: "prometheus-node-exporter"
+        action: insert
+
+exporters:
+  # Sumo Logic exporter
+  sumologic:
+    endpoint: "${SUMO_ENDPOINT_URL}"
+    compress_encoding: "gzip"
+    max_request_body_size: 20971520  # 20MB
+    
+    # Metric format configuration
+    metric_format: prometheus
+    
+    # Source configuration for statsd metrics
+    source_category: "kubernetes/metrics/statsd"
+    source_name: "statsd-node-exporter"
+    source_host: "${K8S_NODE_NAME}"
+
+  # Debug exporter for troubleshooting
+  logging:
+    loglevel: info
+    sampling_initial: 2
+    sampling_thereafter: 500
+
+  # OTLP exporter (if forwarding to another collector)
+  otlp/sumologic:
+    endpoint: "${SUMO_OTLP_ENDPOINT}"
+    headers:
+      "X-Sumo-Category": "kubernetes/metrics/statsd"
+      "X-Sumo-Name": "statsd-node-exporter"
+      "X-Sumo-Host": "${K8S_NODE_NAME}"
+
+service:
+  # Configure logging
+  telemetry:
+    logs:
+      level: "info"
+    metrics:
+      address: "0.0.0.0:8888"
+
+  extensions: []
+
+  pipelines:
+    # Metrics pipeline for statsd via prometheus scraping
+    metrics/statsd:
+      receivers: [prometheus]
+      processors: [memory_limiter, attributes/statsd, resource, batch]
+      exporters: [sumologic, logging]
+
+    # Alternative pipeline with OTLP export
+    metrics/statsd-otlp:
+      receivers: [prometheus]
+      processors: [memory_limiter, attributes/statsd, resource, batch]
+      exporters: [otlp/sumologic, logging]

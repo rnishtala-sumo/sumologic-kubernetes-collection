@@ -759,7 +759,19 @@ sumologic:
             app: kube-prometheus-stack-prometheus
 
     ## User-defined ServiceMonitors go here
-    additionalServiceMonitors: []
+    additionalServiceMonitors: 
+      - name: collection-sumologic-prometheus-node-exporter-statsd
+        additionalLabels:
+          sumologic.com/app: prometheus-node-exporter-statsd
+        endpoints:
+          - port: statsd-metrics
+            scheme: http
+            interval: 30s
+            path: /metrics
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus-node-exporter
+            app.kubernetes.io/instance: sumo
 
     ## The type of source we send to in Sumo. The possible values are http and otlp.
     ## Consult the documentation for more information.
@@ -1217,11 +1229,69 @@ kube-prometheus-stack:
         ## node_network_receive_bytes_total
         ## node_network_transmit_bytes_total
         ## node_filesystem_avail_bytes
-        ## node_filesystem_size_bytes
+        ## node_filesystem_size_bytes and dogstatsd metrics
         metricRelabelings:
           - action: keep
-            regex: (?:node_load1|node_load5|node_load15|node_cpu_seconds_total|node_disk_io_time_weighted_seconds_total|node_disk_io_time_seconds_total|node_vmstat_pgpgin|node_vmstat_pgpgout|node_memory_MemFree_bytes|node_memory_MemAvailable_bytes|node_memory_Cached_bytes|node_memory_Buffers_bytes|node_memory_MemTotal_bytes|node_network_receive_drop_total|node_network_transmit_drop_total|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_filesystem_avail_bytes|node_filesystem_size_bytes)
+            regex: (?:node_load1|node_load5|node_load15|node_cpu_seconds_total|node_disk_io_time_weighted_seconds_total|node_disk_io_time_seconds_total|node_vmstat_pgpgin|node_vmstat_pgpgout|node_memory_MemFree_bytes|node_memory_MemAvailable_bytes|node_memory_Cached_bytes|node_memory_Buffers_bytes|node_memory_MemTotal_bytes|node_network_receive_drop_total|node_network_transmit_drop_total|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_filesystem_avail_bytes|node_filesystem_size_bytes|dogstatsd_sample_app_.*)
             sourceLabels: [__name__]
+
+    ## Extra volumes for statsd-exporter tmp directory
+    extraVolumes:
+      - name: tmp-volume
+        emptyDir: {}
+
+    ## Enable sidecar containers for statsd-exporter
+    ## Note: This uses the chart's sidecar support
+    sidecars:
+      - name: statsd-exporter
+        image: prom/statsd-exporter:v0.27.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: statsd-udp
+            containerPort: 8125
+            protocol: UDP
+          - name: statsd-metrics
+            containerPort: 9102
+            protocol: TCP
+        args:
+          - --statsd.listen-udp=:8125
+          - --statsd.cache-size=1000
+          - --statsd.event-queue-size=10000
+          - --statsd.event-flush-threshold=1000
+          - --statsd.event-flush-interval=200ms
+          - --web.listen-address=:9102
+          - --web.telemetry-path=/metrics
+          - --log.level=info
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+        volumeMounts:
+          - name: tmp-volume
+            mountPath: /tmp
+            readOnly: false
+
+    ## Volume mounts for sidecar containers
+    sidecarVolumeMount:
+      - name: tmp-volume
+        mountPath: /tmp
+        readOnly: false
+
+    ## Service configuration
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9102"
+        prometheus.io/path: "/metrics"
+
   prometheus:
     enabled: false
     additionalServiceMonitors: []

@@ -1,0 +1,7 @@
+# DogStatsD Metrics Generator Dependencies
+# Using native UDP socket implementation - no external dependencies needed
+
+# All functionality implemented using Python standard library only
+
+# Additional utilities
+requests==2.31.0
