@@ -18,7 +18,7 @@ data:
         - logs/otlp/containers/routing/default
         table:
         - pipelines:
-          - logs/otlp/containers/routing/sumologic/test
+          - logs/otlp/containers/routing/
           - logs/otlp/containers/routing/default
           statement: route() where resource.attributes["exporter"] == "test"
       routing/systemd:
@@ -26,7 +26,7 @@ data:
         - logs/otlp/systemd/routing/default
         table:
         - pipelines:
-          - logs/otlp/systemd/routing/sumologic/test
+          - logs/otlp/systemd/routing/
           - logs/otlp/systemd/routing/default
           statement: route() where resource.attributes["exporter"] == "test"
     exporters:
@@ -336,14 +336,14 @@ data:
           - batch
           receivers:
           - otlp
+        logs/otlp/containers/routing/:
+          exporters:
+          - null
+          receivers:
+          - routing/containers
         logs/otlp/containers/routing/default:
           exporters:
           - sumologic/containers
-          receivers:
-          - routing/containers
-        logs/otlp/containers/routing/sumologic/test:
-          exporters:
-          - sumologic/test
           receivers:
           - routing/containers
         logs/otlp/kubelet:
@@ -391,14 +391,14 @@ data:
           - batch
           receivers:
           - otlp
+        logs/otlp/systemd/routing/:
+          exporters:
+          - null
+          receivers:
+          - routing/systemd
         logs/otlp/systemd/routing/default:
           exporters:
           - sumologic/systemd
-          receivers:
-          - routing/systemd
-        logs/otlp/systemd/routing/sumologic/test:
-          exporters:
-          - sumologic/test
           receivers:
           - routing/systemd
       telemetry:

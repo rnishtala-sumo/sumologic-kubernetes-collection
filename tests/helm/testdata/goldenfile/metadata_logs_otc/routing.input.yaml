@@ -1,4 +1,6 @@
 sumologic:
+  accessId: "test"
+  accessKey: "test"
   logs:
     collector:
       otelcol:
@@ -15,7 +17,7 @@ sumologic:
           - debug
           - sumologic/test
         table:
-          - exporters:
-              - sumologic/test
-              - debug
+          - exporter: sumologic/test
+            statement: route() where resource.attributes["exporter"] == "test"
+          - exporter: debug
             statement: route() where resource.attributes["exporter"] == "test"

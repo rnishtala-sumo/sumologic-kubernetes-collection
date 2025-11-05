@@ -1,4 +1,13 @@
 {{/*
+Normalize routing statement for consistent grouping
+
+'{{- include "logs.otelcol.routing.normalizeStatement" "route() where resource.attributes[\"exporter\"] == \"test\"" }}'
+*/}}
+{{- define "logs.otelcol.routing.normalizeStatement" -}}
+{{- . | trim | replace "'" "\"" | replace "  " " " | replace " =" "=" | replace "= " "=" | replace " !" "!" | replace "! " "!" | lower -}}
+{{- end -}}
+
+{{/*
 Check if any logs metadata provider is enabled
 
 Example Usage:
@@ -115,9 +124,23 @@ Return all exporters for .Type pipeline
 {{- $exporters := include "logs.otelcol.defaultExporters" . | fromJsonArray }}
 {{/* Iterate over all exporters used by routing */}}
 {{- if .Values.sumologic.logs.otelcol.routing.table -}}
-{{- range $entry := .Values.sumologic.logs.otelcol.routing.table -}}
-{{- $exporters = append $exporters $entry.exporter -}}
-{{- end -}}
+{{/* Group routes by normalized statement and collect all unique exporters */}}
+{{- $groupedRoutes := dict }}
+{{- range $entry := .Values.sumologic.logs.otelcol.routing.table }}
+  {{- $normalizedStatement := include "logs.otelcol.routing.normalizeStatement" $entry.statement }}
+  {{- if hasKey $groupedRoutes $normalizedStatement }}
+    {{- $existing := index $groupedRoutes $normalizedStatement }}
+    {{- $updatedExporters := append $existing.exporters $entry.exporter }}
+    {{- $_ := set $groupedRoutes $normalizedStatement (dict "statement" $entry.statement "exporters" $updatedExporters) }}
+  {{- else }}
+    {{- $_ := set $groupedRoutes $normalizedStatement (dict "statement" $entry.statement "exporters" (list $entry.exporter)) }}
+  {{- end }}
+{{- end }}
+{{- range $normalizedStatement, $group := $groupedRoutes }}
+{{- range $exp := $group.exporters }}
+{{- $exporters = append $exporters $exp }}
+{{- end }}
+{{- end }}
 {{- range $exporter := .Values.sumologic.logs.otelcol.routing.fallbackExporters -}}
 {{- $exporters = append $exporters $exporter -}}
 {{- end -}}
